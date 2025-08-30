@@ -46,6 +46,7 @@
 ---
 <img src="ARC1.png" alt="alt text" width="400"/>
 ---
+
 ## 2. 필수 패키지 설치 및 서비스 시작
 
 ### 2.1 Apache(httpd) 설치
