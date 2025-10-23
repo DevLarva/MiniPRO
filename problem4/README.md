@@ -1,265 +1,322 @@
-# ***WordPress Multi‑Server Deployment with Load Balancing***
+# WordPress 다중 서버 배포와 로드 밸런싱 및 NFS 연동
 
-> **작성자:** 백대홍
+> 작성자: 백대홍
 >
-> **버전:** 1.0 (3번 문항)
-> 
+> **버전:** 1.0 (4번 문항)
+>
 > **날짜:** 2025-07-31
 
-## **목차**
+---
 
-- [***WordPress Multi‑Server Deployment with Load Balancing***](#wordpress-multiserver-deployment-with-load-balancing)
-  - [**목차**](#목차)
-  - [1. 개요](#1-개요)
-  - [2. 아키텍처 구성도](#2-아키텍처-구성도)
-    - [2.1 아키텍처 구성 요소별 역할 분석](#21-아키텍처-구성-요소별-역할-분석)
-  - [3. 환경 정보](#3-환경-정보)
-  - [4. 데이터베이스 서버 구성](#4-데이터베이스-서버-구성)
-    - [4.1 MySQL 설치 및 서비스 설정](#41-mysql-설치-및-서비스-설정)
-    - [4.2 방화벽 설정](#42-방화벽-설정)
-    - [4.3 MySQL 내부 설정](#43-mysql-내부-설정)
-  - [5. 웹 서버 구성](#5-웹-서버-구성)
-    - [5.1 Apache 설치 및 서비스 구성](#51-apache-설치-및-서비스-구성)
-    - [5.2 PHP 및 MySQL 클라이언트 설치](#52-php-및-mysql-클라이언트-설치)
-    - [5.3 방화벽 설정](#53-방화벽-설정)
-    - [5.4 WordPress 설치 및 배치](#54-wordpress-설치-및-배치)
-    - [5.5 wp-config.php 내부 설정](#55-wp-configphp-내부-설정)
-    - [5.6 Apache 가상 호스트 설정](#56-apache-가상-호스트-설정)
-    - [5.7 health.php 상태 확인 페이지 작성](#57-healthphp-상태-확인-페이지-작성)
-    - [5.8 SELinux 설정](#58-selinux-설정)
-    - [5.9 서비스 재시작 및 검증](#59-서비스-재시작-및-검증)
-  - [6. 추가 웹 서버 구성](#6-추가-웹-서버-구성)
-  - [7. 로드 밸런서 구성](#7-로드-밸런서-구성)
-    - [7.1 HAProxy 설치](#71-haproxy-설치)
-    - [7.2 HAProxy 설정 파일 수정](#72-haproxy-설정-파일-수정)
-    - [7.3 SELinux 및 서비스 시작](#73-selinux-및-서비스-시작)
-    - [7.4 방화벽 구성](#74-방화벽-구성)
-  - [8. 로드 밸런싱 검증](#8-로드-밸런싱-검증)
-    - [8.1 X-Server-ID 헤더 이용](#81-x-server-id-헤더-이용)
-    - [8.2 access\_log 실시간 확인](#82-access_log-실시간-확인)
+## 목차
+
+- [1. 개요](https://claude.ai/chat/9e8c31e6-ffb2-4822-a38c-30f0e8654272#1-%EA%B0%9C%EC%9A%94)
+- [2. 아키텍처 구성도](https://claude.ai/chat/9e8c31e6-ffb2-4822-a38c-30f0e8654272#2-%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98-%EA%B5%AC%EC%84%B1%EB%8F%84)
+  - [2.1 아키텍처 구성 요소별 역할 분석](https://claude.ai/chat/9e8c31e6-ffb2-4822-a38c-30f0e8654272#21-%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98-%EA%B5%AC%EC%84%B1-%EC%9A%94%EC%86%8C%EB%B3%84-%EC%97%AD%ED%95%A0-%EB%B6%84%EC%84%9D)
+- [3. 환경 정보](https://claude.ai/chat/9e8c31e6-ffb2-4822-a38c-30f0e8654272#3-%ED%99%98%EA%B2%BD-%EC%A0%95%EB%B3%B4)
+- [4. NFS 서버 구성](https://claude.ai/chat/9e8c31e6-ffb2-4822-a38c-30f0e8654272#4-nfs-%EC%84%9C%EB%B2%84-%EA%B5%AC%EC%84%B1)
+- [5. 데이터베이스 서버 구성](https://claude.ai/chat/9e8c31e6-ffb2-4822-a38c-30f0e8654272#5-%EB%8D%B0%EC%9D%B4%ED%84%B0%EB%B2%A0%EC%9D%B4%EC%8A%A4-%EC%84%9C%EB%B2%84-%EA%B5%AC%EC%84%B1)
+- [6. 웹 서버 구성](https://claude.ai/chat/9e8c31e6-ffb2-4822-a38c-30f0e8654272#6-%EC%9B%B9-%EC%84%9C%EB%B2%84-%EA%B5%AC%EC%84%B1)
+- [7. 로드 밸런서 구성](https://claude.ai/chat/9e8c31e6-ffb2-4822-a38c-30f0e8654272#7-%EB%A1%9C%EB%93%9C-%EB%B0%B8%EB%9F%B0%EC%84%9C-%EA%B5%AC%EC%84%B1)
+- [8. 구성 검증](https://claude.ai/chat/9e8c31e6-ffb2-4822-a38c-30f0e8654272#8-%EA%B5%AC%EC%84%B1-%EA%B2%80%EC%A6%9D)
 
 ---
 
 ## 1. 개요
 
-이 문서는 2대의 웹 서버, 1대의 로드 밸런서, 1대의 데이터베이스 서버로 구성된 인프라 환경을 기반으로, 다음을 목표로 한다.
+이 문서는 2대의 웹 서버, 1대의 로드 밸런서, 1대의 데이터베이스 서버, 그리고 1대의 NFS 서버로 구성된 고가용성 인프라 환경 구축을 목표로 합니다.
 
--   로드 밸런싱을 통해 다중 웹 서버 간의 트래픽 분산
--   내부/외부 네트워크 분리 구조의 이해
--   DB 연결 구조 및 웹-DB 통신 방식 설명
+**주요 목표:**
 
-## 2. 아키텍처 구성도
-
-<img src="ARC.png" alt="image.png" width="700"/>
-
+- **로드 밸런싱**: 다중 웹 서버 간의 트래픽을 효율적으로 분산
+- **데이터 일관성**: NFS를 통해 여러 웹 서버가 동일한 WordPress 파일 공유
+- **네트워크 분리**: 보안 강화를 위한 내부/외부 네트워크 분리
+- **통합 연동**: Web-DB-NFS 간 통신 및 데이터 흐름 구현
 
 ---
 
+## 2. 아키텍처 구성도
+
+![스크린샷 2025-10-23 21.08.27.png](%EB%B3%B4%EA%B3%A0%EC%84%9C%202954f143198880aca323e9c76653dc1c/%E1%84%89%E1%85%B3%E1%84%8F%E1%85%B3%E1%84%85%E1%85%B5%E1%86%AB%E1%84%89%E1%85%A3%E1%86%BA_2025-10-23_21.08.27.png)
 
 ### 2.1 아키텍처 구성 요소별 역할 분석
 
 **클라이언트 (Client)**
 
--   서비스에 접속하는 사용자를 나타냅니다.
--   이들은 아키텍처의 복잡성을 전혀 인지하지 못하며, 오직 로드 밸런서의 단일 공인 IP 주소하고만 통신합니다.
+서비스에 접속하는 최종 사용자입니다. 로드 밸런서의 공인 IP 주소로만 통신하며 내부의 복잡한 구조는 인지하지 못합니다.
 
 **로드 밸런서 (Load Balancer - LB)**
 
--   트래픽 분산 (Traffic Distribution): 들어온 요청을 여러 웹 서버로 공평하게 분산시켜, 하나의 웹 서버에 트래픽이 몰리는 것을 방지하고 전체 시스템의 처리 효율을 높입니다.
-
+- **트래픽 분산**: 외부의 모든 HTTP 요청을 받아 내부 웹 서버(Web 1, Web 2)들에게 라운드로빈 방식으로 균등하게 분배합니다.
+- **고가용성**: 웹 서버의 상태를 주기적으로 확인(Health Check)하여 장애가 발생한 서버로는 트래픽을 보내지 않습니다.
 
 **웹 서버 (Web Server 1 & 2)**
 
--   애플리케이션 엔진: 실제 웹 페이지를 만들고 사용자 요청을 처리하는 엔진입니다. 로드 밸런서로부터 전달받은 요청을 실행하여 비즈니스 로직(WordPress/PHP)을 처리합니다.
--   데이터 요청자: 동적인 웹 페이지를 생성하기 위해, 데이터베이스 서버에 접속하여 게시글, 사용자 정보 등의 데이터를 가져옵니다.
--   고가용성 (High Availability): 두 대 이상으로 구성되어 있어 한 서버에 장애가 발생하더라도 다른 서버가 서비스를 계속 이어갈 수 있습니다.
+- **애플리케이션 엔진**: 로드 밸런서로부터 전달받은 요청을 처리하여 PHP 코드를 실행하고 동적인 웹 페이지를 생성합니다.
+- **중앙 파일 시스템 연결**: 모든 WordPress 소스 파일과 미디어 업로드 파일을 NFS 서버에서 마운트하여 사용합니다. 이를 통해 모든 웹 서버가 항상 동일한 데이터를 보도록 보장합니다.
+- **데이터 요청자**: 동적 콘텐츠 생성을 위해 중앙 데이터베이스 서버에 접속하여 데이터를 요청합니다.
+
+**NFS 서버 (Network File System Server)**
+
+- **중앙 파일 저장소**: WordPress의 핵심 파일, 테마, 플러그인, 업로드된 이미지 등 웹 콘텐츠 전체를 저장하고 관리합니다.
+- **파일 공유**: 웹 서버들에게 `/var/www/html` 디렉토리를 네트워크를 통해 공유하여 데이터의 일관성을 유지합니다.
 
 **데이터베이스 서버 (Database Server - DB)**
 
--   중앙 데이터 저장소: 웹사이트의 모든 영구적인 데이터(게시글, 댓글, 사용자 정보, 설정 등)를 저장하고 관리하는 중앙 저장소입니다.
--   데이터 제공자: 오직 신원이 확인된 웹 서버들의 데이터 요청(SQL 쿼리)에만 응답하여 데이터를 제공합니다.
--   보안의 핵심: 외부 인터넷과 완전히 분리되어 있어 데이터베이스를 직접 공격하는 것을 원천적으로 차단하며, 시스템의 보안을 크게 향상시킵니다.
-
-**전체 시스템 동작 흐름**
-
-1.  클라이언트가 로드 밸런서의 공인 IP로 웹 페이지를 요청합니다.
-2.  로드 밸런서는 이 요청을 웹 서버 1 또는 웹 서버 2 중 한 곳으로 전달합니다.
-3.  요청을 받은 웹 서버는 페이지를 만들기 위해 필요한 데이터를 데이터베이스 서버에 요청합니다.
-4.  데이터베이스 서버는 데이터를 웹 서버에게 전달합니다.
-5.  웹 서버는 받은 데이터로 최종 HTML 페이지를 완성하여 로드 밸런서를 통해 클라이언트에게 응답합니다.
-
+- **중앙 데이터 저장소**: 웹사이트의 모든 영구 데이터(게시글, 사용자 정보, 설정 등)를 저장하고 관리합니다.
+- **데이터 제공자**: 내부망에 위치한 웹 서버들의 SQL 쿼리 요청에만 응답하여 데이터를 제공합니다.
+- **보안**: 외부 인터넷과 완전히 분리되어 데이터베이스 직접 공격을 원천 차단합니다.
 
 ---
 
 ## 3. 환경 정보
 
-| 서버 종류       | 역할          | IP 주소         | 설명                                               |
-| --------------- | ------------- | --------------- | -------------------------------------------------- |
-| **Web Server 1**| Web 통신      | `192.168.56.44` | 로드 밸런서와 연결되는 내부 웹 인터페이스          |
-|                 | DB 접속       | `192.168.57.44` | 데이터베이스 서버와 통신                           |
-| **Web Server 2**| Web 통신      | `192.168.56.55` | 로드 밸런서와 연결되는 내부 웹 인터페이스          |
-|                 | DB 접속       | `192.168.57.55` | 데이터베이스 서버와 통신                           |
-| **Load Balancer** | Public 접속   | `192.168.55.66` | 외부 사용자가 접속하는 인터페이스 (Public IP)      |
-|                 | 내부 통신     | `192.168.56.66` | 내부 웹 서버들과 통신하는 인터페이스 (Private IP)  |
-| **Database Server** | DB 수신       | `192.168.57.33` | 웹 서버들로부터의 DB 연결을 수신                   |
+### 시스템 환경
+
+- **가상화**: Vagrant + VirtualBox
+- **OS**: Rocky Linux 9 (RHEL 계열)
+- **셸**: Bash
+
+### 네트워크 구성
+
+| 서버 종류           | 역할        | IP 주소       | 설명                                              |
+| ------------------- | ----------- | ------------- | ------------------------------------------------- |
+| **Load Balancer**   | Public 접속 | 192.168.55.66 | 외부 사용자가 접속하는 인터페이스 (Public IP)     |
+|                     | 내부 통신   | 192.168.56.66 | 내부 웹 서버들과 통신하는 인터페이스 (Private IP) |
+| **Web Server 1**    | Web 통신    | 192.168.56.44 | 로드 밸런서와 연결되는 내부 웹 인터페이스         |
+|                     | DB/NFS 접속 | 192.168.57.44 | 데이터베이스 및 NFS 서버와 통신                   |
+| **Web Server 2**    | Web 통신    | 192.168.56.55 | 로드 밸런서와 연결되는 내부 웹 인터페이스         |
+|                     | DB/NFS 접속 | 192.168.57.55 | 데이터베이스 및 NFS 서버와 통신                   |
+| **Database Server** | DB 접속     | 192.168.57.33 | 웹 서버들로부터의 DB 연결 수신                    |
+| **NFS Server**      | NFS 접속    | 192.168.57.66 | 웹 서버들에게 파일 공유 서비스 제공               |
+
+### 네트워크 대역별 용도
+
+| 네트워크            | CIDR            | 용도        | 연결 서버            |
+| ------------------- | --------------- | ----------- | -------------------- |
+| **Public Network**  | 192.168.55.0/24 | 외부 접속   | Client ↔ LB          |
+| **Web Network**     | 192.168.56.0/24 | 웹 트래픽   | LB ↔ Web1, Web2      |
+| **Backend Network** | 192.168.57.0/24 | 내부 서비스 | Web1, Web2 ↔ DB, NFS |
 
 ---
 
-**공통 환경**
+## 4. NFS 서버 구성
 
--   OS: Rocky Linux 9 (RHEL 계열)
--   셸: Bash (root 또는 sudo 필요)
+모든 웹 서버가 공유할 WordPress 파일을 중앙에서 관리하기 위해 NFS 서버를 먼저 구성합니다.
 
----
-
-## 4. 데이터베이스 서버 구성
-
-가장 먼저 모든 데이터가 저장될 DB 서버를 구축합니다.
-
-### 4.1 MySQL 설치 및 서비스 설정
+### 4.1 NFS 설치 및 서비스 설정
 
 ```bash
-$ sudo dnf install -y mysql-server
+# NFS 관련 유틸리티 설치
+$ sudo dnf install -y nfs-utils
 
-$ sudo systemctl start mysqld
+# NFS 서비스를 시작하고 부팅 시 자동 실행되도록 설정
+$ sudo systemctl enable --now nfs-server
+
 ```
 
-### 4.2 방화벽 설정
+### 4.2 WordPress 파일 준비 및 배치
 
 ```bash
-$ sudo firewall-cmd --add-service=mysql --permanent
+# WordPress 최신 버전 다운로드 및 압축 해제
+$ sudo curl -o wordpress.tar.gz https://wordpress.org/latest.tar.gz
+$ sudo mkdir -p /var/www/html
+$ sudo tar xvf wordpress.tar.gz -C /var/www/html
 
+# 공유할 디렉토리 권한 설정 (웹 서버 프로세스가 접근 가능하도록)
+$ sudo chown -R apache:apache /var/www/html/wordpress
+
+```
+
+### 4.3 NFS 공유 설정
+
+```bash
+# /etc/exports 파일에 공유할 디렉토리와 옵션을 추가합니다.
+$ sudo vi /etc/exports
+```
+
+**추가 내용:**
+
+```
+/var/www/html 192.168.57.0/24(rw,sync,no_root_squash)
+```
+
+### 4.4 방화벽 설정
+
+```bash
+# NFS 서비스에 필요한 방화벽 포트를 영구적으로 개방합니다.
+$ sudo firewall-cmd --add-service=nfs --permanent
+$ sudo firewall-cmd --add-service=rpc-bind --permanent
+$ sudo firewall-cmd --add-service=mountd --permanent
 $ sudo firewall-cmd --reload
 ```
 
-### 4.3 MySQL 내부 설정
+### 4.5 WordPress 설정 파일 준비
 
 ```bash
+# DB 연결 정보를 담을 설정 파일을 샘플 파일로부터 복사합니다.
+$ sudo cp /var/www/html/wordpress/wp-config-sample.php /var/www/html/wordpress/wp-config.php
 
-mysql
+# DB 연결 정보를 수정합니다. 이 파일은 모든 웹 서버가 공통으로 사용합니다.
+$ sudo vi /var/www/html/wordpress/wp-config.php
+```
 
+**수정 내용:**
+
+```php
+define( 'DB_NAME', 'wp' );
+define( 'DB_USER', 'web' );
+define( 'DB_PASSWORD', 'password' );
+define( 'DB_HOST', '192.168.57.33' ); // DB 서버의 내부 IP
+```
+
+**로드 밸런서의 상태 확인을 위한 health.php 페이지 작성:**
+
+```bash
+$ sudo vi /var/www/html/wordpress/health.php
+
+```
+
+**작성 내용:**
+
+```php
+<?php
+  echo "Hostname: " . gethostname() . "<br>";
+  echo "Server IP: " . $_SERVER['SERVER_ADDR'] . "<br>";
+?>
+```
+
+### 4.6 서비스 재시작 및 확인
+
+```bash
+# 설정한 공유 정보를 시스템에 적용합니다.
+$ sudo exportfs -ra
+
+# 공유 상태를 확인합니다.
+$ sudo showmount -e localhost
+```
+
+---
+
+## 5. 데이터베이스 서버 구성
+
+WordPress의 모든 데이터를 저장할 DB 서버를 구성합니다.
+
+### 5.1 MySQL 설치 및 서비스 설정
+
+```bash
+$ sudo dnf install -y mysql-server
+$ sudo systemctl enable --now mysqld
+```
+
+### 5.2 방화벽 설정
+
+```bash
+$ sudo firewall-cmd --add-service=mysql --permanent
+$ sudo firewall-cmd --reload
+```
+
+### 5.3 MySQL 내부 설정
+
+```bash
+# MySQL 서버에 접속합니다.
+$ sudo mysql
+```
+
+**SQL 명령어:**
+
+```sql
+-- WordPress용 데이터베이스 및 사용자를 생성합니다.
 mysql> CREATE DATABASE wp;
-
 mysql> CREATE USER 'web'@'192.168.57.%' IDENTIFIED BY 'password';
-
 mysql> GRANT ALL PRIVILEGES ON wp.* TO 'web'@'192.168.57.%';
-
 mysql> FLUSH PRIVILEGES;
-
 mysql> EXIT;
 ```
 
 ---
 
-## 5. 웹 서버 구성
+## 6. 웹 서버 구성
 
-첫 번째 웹 서버(Web Server 1)를 기준으로 순서대로 실행합니다.
+두 웹 서버에 동일한 설정을 적용합니다. 아래 절차를 Web 1, Web 2 서버에서 각각 수행합니다.
 
-### 5.1 Apache 설치 및 서비스 구성
+### 6.1 Apache, PHP 설치
 
 ```bash
-$ sudo dnf install -y httpd             # Apache 설치
-
-$ sudo systemctl start httpd            # 서비스 시작
+$ sudo dnf install -y httpd php php-mysqlnd
+$ sudo systemctl enable --now httpd
 ```
 
-### 5.2 PHP 및 MySQL 클라이언트 설치
+### 6.2 방화벽 설정
 
 ```bash
-$ sudo dnf install -y php php-mysqlnd   # PHP 및 MySQL 연동 모듈 설치
-```
-
-### 5.3 방화벽 설정
-
-```bash
-$ sudo firewall-cmd --add-service=http 
-
-$ sudo firewall-cmd --add-port=80/tcp 
-
-$ sudo firewall-cmd --add-port=3306/tcp 
-
+$ sudo firewall-cmd --permanent --add-service=http
+$ sudo firewall-cmd --permanent --add-service=nfs
+$ sudo firewall-cmd --permanent --add-service=mountd
+$ sudo firewall-cmd --permanent --add-service=rpc-bind
 $ sudo firewall-cmd --reload
 ```
 
-### 5.4 WordPress 설치 및 배치
+### 6.3 NFS 공유 디렉토리 마운트
 
 ```bash
-$ sudo curl -o wordpress.tar.gz https://wordpress.org/latest.tar.gz
+# NFS 서버의 공유 디렉토리를 웹 서버의 /var/www/html 디렉토리에 마운트합니다.
+$ sudo mount -t nfs 192.168.57.66:/var/www/html /var/www/html
 
-$ sudo tar xvf wordpress.tar.gz -C /var/www/html
-
-$ sudo cp /var/www/html/wordpress/wp-config-sample.php /var/www/html/wordpress/wp-config.php
+# 재부팅 시에도 자동으로 마운트되도록 /etc/fstab에 등록합니다.
+$ sudo vi /etc/fstab
 ```
 
-### 5.5 wp-config.php 내부 설정
+**추가 내용:**
 
-```bash
-$ sudo vi /var/www/html/wordpress/wp-config.php
-    
-    #wp-config.php 내부에서 수정
-
-    define( 'DB_NAME', 'wp' );    
-
-    define( 'DB_USER', 'web' );
-
-    define( 'DB_PASSWORD', 'password' );
-
-    define( 'DB_HOST', '192.168.57.33' );
+```
+192.168.57.66:/var/www/html     /var/www/html   nfs    defaults,sec=sys 0 0
 ```
 
-### 5.6 Apache 가상 호스트 설정
+**설정 적용 및 확인:**
 
 ```bash
+# fstab 설정을 시스템에 즉시 적용하고 마운트 상태를 확인합니다.
+$ sudo mount -a
+$ mount | grep html
+```
+
+### 6.4 Apache 가상 호스트 설정
+
+```bash
+# WordPress 디렉토리를 DocumentRoot로 사용하는 가상 호스트를 설정합니다.
 $ sudo vi /etc/httpd/conf.d/wordpress.conf
+```
 
-    #wordpress.conf 내부에서 수정
+**작성 내용:**
 
-    <VirtualHost *:80>
+```
+<VirtualHost *:80>
     DocumentRoot /var/www/html/wordpress
-        <Directory "/var/www/html/wordpress">
-            AllowOverride All
-        </Directory>
-    </VirtualHost>
+    <Directory "/var/www/html/wordpress">
+        AllowOverride All
+        Require all granted
+    </Directory>
+</VirtualHost>
 ```
 
-### 5.7 health.php 상태 확인 페이지 작성
+### 6.5 SELinux 정책 설정
 
 ```bash
-$ sudo vi /var/www/html/wordpress/health.php
-
-    #wordpress/health.php 내부에서 수정
-
-    <?php
-      echo "Hostname: " . gethostname() . "<br>";
-      echo "Server IP: " . $_SERVER['SERVER_ADDR'] . "<br>";
-      echo "Client IP: " . $_SERVER['REMOTE_ADDR'] . "<br>";
-    ?>
+# Apache(httpd)가 네트워크를 통해 DB에 접속하고, NFS를 사용할 수 있도록 SELinux 정책을 영구적으로 허용합니다.
+$ sudo setsebool -P httpd_can_network_connect_db 1
+$ sudo setsebool -P httpd_use_nfs 1
 ```
 
-### 5.8 SELinux 설정
+### 6.6 서비스 재시작
 
 ```bash
-$ sudo setsebool -P httpd_can_network_connect_db 1    #httpd_can_network_connect_db 정책을 영구적으로 활성화합니다.
+$ sudo systemctl restart httpd
 ```
-
-### 5.9 서비스 재시작 및 검증
-
-```bash
-$ sudo systemctl restart httpd            # Apache 재시작
-
-$ sudo nc -zv 192.168.57.33 3306          # DB 연결 테스트
-```
-
-> **health.php 확인:** http://<Web1_IP>/wordpress/health.php
 
 ---
 
-## 6. 추가 웹 서버 구성 
-두 번째 웹 서버(Web Server 2)는 **5장. 웹 서버 구성**의 절차를 동일하게 수행합니다.
-
----
-
-## 7. 로드 밸런서 구성 
+## 7. 로드 밸런서 구성
 
 웹 서버들 앞단에서 트래픽을 분산할 로드 밸런서를 설정합니다.
 
@@ -275,83 +332,90 @@ $ sudo dnf install -y haproxy
 $ sudo vi /etc/haproxy/haproxy.cfg
 ```
 
-```bash
+**수정 내용 (frontend 및 backend 섹션):**
 
-/etc/haproxy/haproxy.cfg  
-# 생략
-
+```
 #---------------------------------------------------------------------
 # frontend main
 #---------------------------------------------------------------------
 frontend main
     bind *:80
-    acl url_static       path_beg       -i /static /images /javascript /stylesheets
-    acl url_static       path_end       -i .jpg .gif .png .css .js
-    use_backend static          if url_static
     default_backend             app
-
-#---------------------------------------------------------------------
-# backend static
-#---------------------------------------------------------------------
-backend static
-    balance     roundrobin                      // 부하 분산 방식: 라운드로빈
-    server web1 192.168.56.44:80 check
-    server web2 192.168.56.55:80 check
 
 #---------------------------------------------------------------------
 # backend app
 #---------------------------------------------------------------------
 backend app
     balance     roundrobin
+    # 웹 서버의 로그인 페이지를 통해 상태를 확인합니다.
     option httpchk GET /wp-login.php
     server web1 192.168.56.44:80 check
     server web2 192.168.56.55:80 check
+    # 응답 헤더에 실제 처리한 서버의 이름을 추가하여 확인을 용이하게 합니다.
     http-response add-header X-Server-ID %[srv_name]
+
 ```
 
 ### 7.3 SELinux 및 서비스 시작
 
 ```bash
-$ sudo setsebool httpd_can_network_connect_db 1
+# HAProxy가 모든 네트워크에 연결할 수 있도록 SELinux 정책을 설정합니다.
+$ sudo setsebool -P haproxy_connect_any 1
 
-$ sudo setsebool haproxy_connect_any 1
+# HAProxy 서비스를 시작하고 부팅 시 자동 실행되도록 설정합니다.
+$ sudo systemctl enable --now haproxy.service
 
-$ sudo systemctl restart haproxy.service
-
-$ sudo systemctl start haproxy.service
+# 설정 파일의 문법이 올바른지 확인합니다.
+$ haproxy -c -f /etc/haproxy/haproxy.cfg
 ```
 
 ### 7.4 방화벽 구성
 
 ```bash
+# 외부에서 80번 포트로 접속할 수 있도록 방화벽을 영구적으로 개방합니다.
 $ sudo firewall-cmd --permanent --add-port=80/tcp
-
 $ sudo firewall-cmd --reload
 ```
 
-> 로드 밸런서 IP(192.168.55.66/192.168.56.66)로 접속 시 Web1/Web2로 분산됩니다.
+> 로드 밸런서의 공인 IP(192.168.55.66)로 접속 시, 요청이 Web 1과 Web 2로 분산됩니다.
 
 ---
 
-## 8. 로드 밸런싱 검증 
+## 8. 구성 검증
 
 ### 8.1 X-Server-ID 헤더 이용
 
 HAProxy 설정의 `http-response add-header X-Server-ID %[srv_name]` 라인은 응답 헤더에 실제 요청을 처리한 서버의 이름(예: `web1`, `web2`)을 추가해줍니다. 이를 통해 브라우저 개발자 도구의 '네트워크' 탭에서 로드 밸런싱이 올바르게 동작하는지 확인할 수 있습니다.
 
-<img src="xserver1.png" alt="image.png" width="500"/>
+![image.png](%EB%B3%B4%EA%B3%A0%EC%84%9C%202954f143198880aca323e9c76653dc1c/image.png)
 
-> 위 그림처럼 응답 헤더의 `X-Server-Id` 값이 `web1` 또는 `web2`로 번갈아 나타나는지 확인합니다.
+> 위 그림처럼 응답 헤더의 X-Server-Id 값이 web1 또는 web2로 번갈아 나타나는지 확인합니다.
 
 ### 8.2 access_log 실시간 확인
 
 각 웹 서버에서 아래 명령어를 실행하여 로드 밸런서로부터 오는 요청이 실시간으로 기록되는지 확인할 수 있습니다.
 
 ```bash
-# 각 웹 서버에서 개별적으로 실행
+# 각 웹 서버(Web 1, Web 2)에서 개별적으로 실행
 $ sudo tail -f /var/log/httpd/access_log
 ```
 
 > 로드 밸런서 주소로 새로고침 할 때마다 아래 그림처럼 각 서버에 로그가 번갈아 기록되는 것을 확인할 수 있습니다.
 
-<img src="tail.png" alt="image.png" width="700"/>
+### 8.3 NFS 일관성 확인
+
+Web1에서 업로드한 파일이 Web2에서도 확인되면 성공입니다.
+
+```bash
+# Web1에서 테스트 파일 작성
+$ echo "hello from web1" | sudo tee /var/www/html/test-nfs.txt
+
+# Web2에서 확인
+$ cat /var/www/html/test-nfs.txt
+```
+
+**예상 출력:**
+
+```
+hello from web1
+```
