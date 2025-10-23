@@ -11,6 +11,8 @@
   : WordPress를 활용한 동적 웹 애플리케이션 배포 및 관리 실습
 - [problem3](./problem3/README.md)  
   : 로드 밸런서 기반의 고가용성 웹 서버 및 데이터베이스 아키텍처 실습
+- [problem4](./problem4/README.md)  
+  : WordPress 다중 서버 배포와 로드 밸런싱 및 NFS 연동 실습
 ## 🚀 목표
 - Apache, PHP, MySQL을 활용하여 **다양한 규모의 WordPress 아키텍처**를 구축한다.  
 - 방화벽, SELinux, 가상호스트 설정 등 **실제 서비스 환경에서 필요한 설정 절차**를 학습한다.  
